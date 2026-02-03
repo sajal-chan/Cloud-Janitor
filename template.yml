@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  ZombieCleaner:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ZombieCleaner
+      Runtime: python3.11
+      Handler: app.lambda_handler
+      CodeUri: .
+      Timeout: 60
+      MemorySize: 128
+      Policies:
+        - EC2ReadOnlyAccess
+        - CloudWatchReadOnlyAccess
+        - Statement:
+            Effect: Allow
+            Action:
+              - ec2:StopInstances
+            Resource: "*"
