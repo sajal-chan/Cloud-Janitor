@@ -1,7 +1,7 @@
 import boto3
 import logging
 from datetime import datetime, timedelta
-
+import os
 # --- CONFIGURATION ---
 TARGET_TAG_KEY = 'env'      # UPDATED to lowercase based on your test
 TARGET_TAG_VALUE = 'Test'
@@ -13,6 +13,7 @@ logger.setLevel(logging.INFO)
 
 ec2 = boto3.client('ec2')
 cloudwatch = boto3.client('cloudwatch')
+sns = boto3.client('sns')
 
 def get_test_instances():
     print(f" Scanning for instances with tag {TARGET_TAG_KEY}={TARGET_TAG_VALUE}...")
@@ -59,32 +60,47 @@ def get_max_cpu(instance_id):
         return -1
 
 def lambda_handler(event, context):
-    # 1. Find Candidates
     candidates = get_test_instances()
+    stopped_instances = []
+
     print(f"Found {len(candidates)} instances.")
 
     for instance in candidates:
         instance_id = instance['id']
         
-        # 2. Safety Check
         if is_protected(instance['tags']):
-            print(f" SKIPPING {instance_id}: Protected tag found.")
+            print(f"SKIPPING {instance_id}: Protected tag found.")
             continue
         
-        # 3. CPU Check
         max_cpu = get_max_cpu(instance_id)
         print(f"Instance: {instance_id} | Max CPU: {max_cpu}%")
         
-        # 4. Action
         if max_cpu < MAX_CPU_THRESHOLD:
-            print(f" ZOMBIE DETECTED: {instance_id}")
+            print(f"ZOMBIE DETECTED: {instance_id}")
             try:
-                print(f"⚡ ACTION: Stopping instance {instance_id}...")
+                print(f"Stopping instance {instance_id}...")
                 ec2.stop_instances(InstanceIds=[instance_id])
-                print(f"✅ SUCCESS: Instance stopped.")
+                stopped_instances.append(instance_id)
+                print("SUCCESS: Instance stopped.")
             except Exception as e:
-                print(f"❌ FAILED to stop: {e}")
+                print(f"FAILED to stop: {e}")
         else:
-            print(f"✅ Active. Instance is in use.")
-            
-    return {"status": "Job Complete"}
+            print("Active. Instance is in use.")
+
+    # ----- SEND NOTIFICATION -----
+    message = {
+        "total_found": len(candidates),
+        "stopped_instances": stopped_instances,
+        "timestamp": str(datetime.utcnow())
+    }
+
+    sns.publish(
+        TopicArn=os.environ["SNS_TOPIC_ARN"],
+        Message=str(message),
+        Subject="Daily EC2 Cleanup Report"
+    )
+
+    return {
+        "status": "Job Complete",
+        "stopped": stopped_instances
+    }

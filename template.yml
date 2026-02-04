@@ -1,21 +1,38 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
 Resources:
-  ZombieCleaner:
+  EC2CleanerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: ZombieCleaner
-      Runtime: python3.11
-      Handler: app.lambda_handler
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
       CodeUri: .
       Timeout: 60
-      MemorySize: 128
+      MemorySize: 256
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CleanupNotificationTopic
       Policies:
-        - EC2ReadOnlyAccess
+        - AmazonEC2FullAccess
         - CloudWatchReadOnlyAccess
-        - Statement:
-            Effect: Allow
-            Action:
-              - ec2:StopInstances
-            Resource: "*"
+        - AmazonSNSFullAccess
+      Events:
+        DailyTrigger:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 0 * * ? *)   # Every day at 00:00 UTC
+
+  # ----- SNS TOPIC FOR NOTIFICATIONS -----
+  CleanupNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: "EC2-Cleanup-Notifications"
+
+  # ----- EMAIL SUBSCRIPTION (YOU) -----
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref CleanupNotificationTopic
+      Endpoint: "sajalchandra124@gmail.com"
